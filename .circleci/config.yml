@@ -1,31 +1,87 @@
-Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/reference/configuration-reference
 version: 2.1
-
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#jobs-overview & https://circleci.com/docs/reference/configuration-reference/#jobs
+orbs:
+  node: circleci/node@5.2.0
 jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Docker Hub or use one of our convenience images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/guides/execution-managed/executor-intro/ & https://circleci.com/docs/reference/configuration-reference/#executor-job
-    docker:
-      # Specify the version you desire here
-      # See: https://circleci.com/developer/images/image/cimg/base
-      - image: cimg/base:current
-
-    # Add steps to the job
-    # See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#steps-overview & https://circleci.com/docs/reference/configuration-reference/#steps
+  # Job 1 : checkoutEtTests
+  checkoutEtTests:
+    executor: node/default
     steps:
-      # Checkout the code as the first step.
-      - checkout
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+          name: Cloner le backend (git clone)
+          command: |
+            git clone https://github.com/Spolla12/Projet_Localhost_Backend.git backend
+      - run:
+          name: Installer les dépendances backend
+          command: |
+            cd backend
+            npm ci || npm install
+      - run:
+          name: Exécuter les tests backend
+          command: |
+            cd backend
+            npm test
 
-# Orchestrate jobs using workflows
-# See: https://circleci.com/docs/guides/orchestrate/workflows/ & https://circleci.com/docs/reference/configuration-reference/#workflows
+  # Job 2 : integrationFrontend
+  integrationFrontend:
+    executor: node/default
+    steps:
+      - run:
+          name: Cloner le backend (git clone)
+          command: |
+            git clone https://github.com/Spolla12/Projet_Localhost_Backend.git backend
+      - run:
+          name: Cloner le frontend (git clone)
+          command: |
+            git clone https://github.com/Spolla12/Projet_Localhost_Frontend.git frontend
+
+      - run:
+          name: Installer deps + build frontend
+          command: |
+            cd frontend
+            npm ci || npm install
+            npm run build
+
+      - run:
+          name: Créer backend/public et copier le build dedans
+          command: |
+            mkdir -p backend/public
+            # CRA => build/ | Vite => dist/
+            if [ -d "frontend/build" ]; then
+              cp -R frontend/build/* backend/public/
+            elif [ -d "frontend/dist" ]; then
+              cp -R frontend/dist/* backend/public/
+            else
+              echo "Erreur : Aucun dossier build ou dist trouvé."
+              echo "Contenu du dossier frontend :"
+              ls -la frontend
+              exit 1
+            fi
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - backend
+
+  # Job 3 : deploiement
+  deploiement:
+    executor: node/default
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Vérification finale (backend prêt pour le cloud)
+          command: |
+            cd backend
+            ls -Rl
+
 workflows:
-  say-hello-workflow: # This is the name of the workflow, feel free to change it to better match your workflow.
-    # Inside the workflow, you define the jobs you want to run.
+  version: 2
+  pipeline_localhost:
     jobs:
-      - say-hello# 
+      - checkoutEtTests
+      - integrationFrontend:
+          requires:
+            - checkoutEtTests
+      - deploiement:
+          requires:
+            - integrationFrontend
